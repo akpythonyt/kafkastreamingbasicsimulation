@@ -5,3 +5,8 @@ git commit -m "Fresh push: only Kafkastreaming folder"
 git branch -M main
 git remote add origin git@github.com:akpythonyt/kafkastreamingbasicsimulation.git
 git push -u origin main --force
+git checkout -b feature/branch_name #create new branch
+git add Kafkastreaming/gitcommands.txt #add file name which you made the changes
+git commit -m "Add gitcommands.txt" #commit and its message
+
+
