@@ -1,7 +1,7 @@
 import subprocess
 import time
 import sys
-from config import KAFKA_PATH, ZOOKEEPER_CONFIG, KAFKA_CONFIG
+from Utils.config import KAFKA_PATH, ZOOKEEPER_CONFIG, KAFKA_CONFIG
 
 def start_zookeeper():
     print("Starting Zookeeper...")
