@@ -1,27 +1,23 @@
-# Full PySpark Streaming ETL for telemetry_data topic
-# Reads from Kafka, cleans data, writes to Delta Lake on HDFS, and prints console output
-
 from pyspark.sql import SparkSession
 from pyspark.sql.types import StructType, StructField, DoubleType
 from pyspark.sql.functions import from_json, from_unixtime, col
-from delta.tables import DeltaTable
-
+from cassandra.cluster import Cluster
+import uuid
 
 # -----------------------------
-# Spark Session with Delta support
+# Spark Session
 # -----------------------------
 spark = SparkSession.builder \
-    .appName("TelemetryETL") \
-    .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension") \
-    .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog") \
+    .appName("TelemetryETLToCassandra") \
     .getOrCreate()
+
 spark.sparkContext.setLogLevel("WARN")
 
 # -----------------------------
 # Telemetry schema
 # -----------------------------
 schema = StructType([
-    StructField("timestamp", DoubleType()),       # epoch time in seconds
+    StructField("timestamp", DoubleType()),
     StructField("speed", DoubleType()),
     StructField("temperature", DoubleType()),
     StructField("fuel", DoubleType())
@@ -38,12 +34,11 @@ kafka_df = spark.readStream \
     .load() \
     .selectExpr("CAST(value AS STRING) as json")
 
+# Parse JSON and convert timestamp
 telemetry_df = kafka_df.select(from_json(col("json"), schema).alias("data")).select("data.*")
-telemetry_df = telemetry_df.withColumn("timestamp", from_unixtime(col("timestamp")))
+telemetry_df = telemetry_df.withColumn("timestamp", from_unixtime(col("timestamp")).cast("timestamp"))
 
-# -----------------------------
 # Filter invalid data
-# -----------------------------
 telemetry_df_clean = telemetry_df.filter(
     (col("speed") >= 0) &
     (col("fuel") >= 0) &
@@ -51,20 +46,26 @@ telemetry_df_clean = telemetry_df.filter(
 )
 
 # -----------------------------
-# HDFS Delta Lake paths
+# Function to write batch to Cassandra
 # -----------------------------
-delta_path = "hdfs://localhost:9000/user/telemetry/delta_car_data"
-checkpoint_path = "hdfs://localhost:9000/user/telemetry/checkpoints"
+def write_to_cassandra(batch_df, batch_id):
+    cluster = Cluster(['127.0.0.1'])  # Cassandra host
+    session = cluster.connect('telemetry_keyspace')  # Keyspace
+    insert_query = """
+        INSERT INTO telemetry_data (id, timestamp, speed, temperature, fuel)
+        VALUES (%s, %s, %s, %s, %s)
+    """
+    for row in batch_df.collect():
+        session.execute(insert_query, (
+            uuid.uuid4(), row.timestamp, row.speed, row.temperature, row.fuel
+        ))
 
 # -----------------------------
-# Write to console and Delta Lake
+# Write stream to Cassandra
 # -----------------------------
 query = telemetry_df_clean.writeStream \
-    .format("console") \
-    .outputMode("append") \
-    .option("truncate", "false") \
+    .foreachBatch(write_to_cassandra) \
+    .outputMode("update") \
     .start()
 
-
-# Keep streaming alive
 query.awaitTermination()
