@@ -1,3 +1,4 @@
 #pip install kafka-python
 #pip install pyspark
+#pip install cassandra-driver
 
